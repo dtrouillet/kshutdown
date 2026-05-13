@@ -1,0 +1,178 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: shutdowngroups.kshutdown.io
+spec:
+  group: kshutdown.io
+  names:
+    kind: ShutdownGroup
+    listKind: ShutdownGroupList
+    plural: shutdowngroups
+    shortNames:
+    - sg
+    singular: shutdowngroup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.since
+      name: Since
+      type: date
+    - jsonPath: .status.operator
+      name: Operator
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ShutdownGroup is the Schema for the shutdowngroups API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ShutdownGroupSpec defines the desired state of ShutdownGroup.
+            properties:
+              targets:
+                description: |-
+                  Targets defines the set of workloads to manage.
+                  Each entry selects resources by labelSelector, optionally scoped to a namespace.
+                  If namespace is omitted, the ShutdownGroup's own namespace is used.
+                items:
+                  description: Target selects a set of workloads within a namespace.
+                  properties:
+                    labelSelector:
+                      additionalProperties:
+                        type: string
+                      description: LabelSelector selects workloads within the namespace.
+                      type: object
+                    namespace:
+                      description: Namespace to search in. Defaults to the ShutdownGroup's
+                        own namespace.
+                      type: string
+                  required:
+                  - labelSelector
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - targets
+            type: object
+          status:
+            description: ShutdownGroupStatus defines the observed state of ShutdownGroup.
+            properties:
+              history:
+                description: History records the last operations for audit purposes.
+                items:
+                  description: HistoryEntry records a single down or up operation.
+                  properties:
+                    at:
+                      description: At is the timestamp of the operation.
+                      format: date-time
+                      type: string
+                    operation:
+                      description: Operation is "down" or "up".
+                      enum:
+                      - down
+                      - up
+                      type: string
+                    operator:
+                      description: Operator is the Kubernetes username.
+                      type: string
+                    reason:
+                      description: Reason is the justification (only present for "down"
+                        operations).
+                      type: string
+                  required:
+                  - at
+                  - operation
+                  - operator
+                  type: object
+                type: array
+              operator:
+                description: Operator is the Kubernetes username who triggered the
+                  last operation.
+                type: string
+              reason:
+                description: Reason is the human-readable justification provided at
+                  shutdown time.
+                type: string
+              since:
+                description: Since is the timestamp of the last state transition.
+                format: date-time
+                type: string
+              snapshot:
+                description: |-
+                  Snapshot holds replica counts captured before scale-down.
+                  Written once during reconcileDown. Cleared during reconcileUp.
+                  Must never be overwritten if non-empty.
+                items:
+                  description: ResourceSnapshot captures the state of a workload before
+                    scale-down.
+                  properties:
+                    kind:
+                      description: Kind is Deployment, StatefulSet, or CronJob.
+                      enum:
+                      - Deployment
+                      - StatefulSet
+                      - CronJob
+                      type: string
+                    name:
+                      description: Name of the captured resource.
+                      type: string
+                    namespace:
+                      description: Namespace of the captured resource.
+                      type: string
+                    previousReplicas:
+                      description: |-
+                        PreviousReplicas is the replica count before scale-down.
+                        For CronJob: 0=was active, 1=was already suspended.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - kind
+                  - name
+                  - namespace
+                  - previousReplicas
+                  type: object
+                type: array
+              state:
+                allOf:
+                - enum:
+                  - up
+                  - down
+                  - unknown
+                - enum:
+                  - up
+                  - down
+                  - unknown
+                description: State is the current lifecycle state of the ShutdownGroup.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

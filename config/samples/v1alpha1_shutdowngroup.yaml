@@ -1,0 +1,9 @@
+apiVersion: kshutdown.io/v1alpha1
+kind: ShutdownGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: kshutdown
+    app.kubernetes.io/managed-by: kustomize
+  name: shutdowngroup-sample
+spec:
+  # TODO(user): Add fields here
