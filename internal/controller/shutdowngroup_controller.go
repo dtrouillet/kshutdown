@@ -106,11 +106,8 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 		log.Info("snapshot captured", "resources", len(snapshots))
 	}
 
-	// Apply skip-reconcile annotation and scale each target to zero.
+	// Scale each target to zero.
 	for _, entry := range sg.Status.Snapshot {
-		if err := r.addSkipReconcile(ctx, entry); err != nil {
-			return ctrl.Result{}, fmt.Errorf("adding skip-reconcile for %s %s/%s: %w", entry.Kind, entry.Namespace, entry.Name, err)
-		}
 		switch entry.Kind {
 		case "CronJob":
 			if err := r.suspendCronJob(ctx, entry); err != nil {
@@ -218,62 +215,6 @@ func (r *ShutdownGroupReconciler) collectTargets(ctx context.Context, sg *kshutd
 	}
 
 	return snapshots, nil
-}
-
-// addSkipReconcile patches the argocd.argoproj.io/skip-reconcile annotation onto the target resource.
-func (r *ShutdownGroupReconciler) addSkipReconcile(ctx context.Context, snap kshutdownv1alpha1.ResourceSnapshot) error {
-	key := types.NamespacedName{Namespace: snap.Namespace, Name: snap.Name}
-	switch snap.Kind {
-	case "Deployment":
-		var obj appsv1.Deployment
-		if err := r.Get(ctx, key, &obj); err != nil {
-			return fmt.Errorf("getting deployment %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-		if obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] == "true" {
-			return nil
-		}
-		patch := client.MergeFrom(obj.DeepCopy())
-		if obj.Annotations == nil {
-			obj.Annotations = make(map[string]string)
-		}
-		obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] = "true"
-		if err := r.Patch(ctx, &obj, patch); err != nil {
-			return fmt.Errorf("adding skip-reconcile to deployment %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-	case "StatefulSet":
-		var obj appsv1.StatefulSet
-		if err := r.Get(ctx, key, &obj); err != nil {
-			return fmt.Errorf("getting statefulset %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-		if obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] == "true" {
-			return nil
-		}
-		patch := client.MergeFrom(obj.DeepCopy())
-		if obj.Annotations == nil {
-			obj.Annotations = make(map[string]string)
-		}
-		obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] = "true"
-		if err := r.Patch(ctx, &obj, patch); err != nil {
-			return fmt.Errorf("adding skip-reconcile to statefulset %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-	case "CronJob":
-		var obj batchv1.CronJob
-		if err := r.Get(ctx, key, &obj); err != nil {
-			return fmt.Errorf("getting cronjob %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-		if obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] == "true" {
-			return nil
-		}
-		patch := client.MergeFrom(obj.DeepCopy())
-		if obj.Annotations == nil {
-			obj.Annotations = make(map[string]string)
-		}
-		obj.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile] = "true"
-		if err := r.Patch(ctx, &obj, patch); err != nil {
-			return fmt.Errorf("adding skip-reconcile to cronjob %s/%s: %w", snap.Namespace, snap.Name, err)
-		}
-	}
-	return nil
 }
 
 // scaleToZero patches spec.replicas=0 on Deployment or StatefulSet.

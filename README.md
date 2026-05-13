@@ -6,7 +6,7 @@ Kubernetes operator + kubectl plugin to shut down and restart a functional slice
 
 kshutdown solves a recurring problem in strict GitOps environments: during an incident (P1/P2), an operator must be able to immediately stop a set of application services without opening pull requests on multiple Git repositories, without waiting for CI/CD pipelines, and without having GitOps controllers revert their actions.
 
-The core mechanism is the native ArgoCD annotation `argocd.argoproj.io/skip-reconcile: "true"`, which prevents ArgoCD from reconciling a specific resource even during a sync triggered by a Git commit.
+ArgoCD compatibility relies on `ignoreDifferences` + `RespectIgnoreDifferences=true` configured on each ArgoCD Application, which prevents ArgoCD from reverting scaled-to-zero replicas during a sync.
 
 ## Getting Started
 

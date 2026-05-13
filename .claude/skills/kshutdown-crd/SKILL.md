@@ -136,10 +136,10 @@ type HistoryEntry struct {
 
 | From | Annotation | Action | To |
 |---|---|---|---|
-| `unknown` | `down` | Save snapshot, add `skip-reconcile`, scale to 0 | `down` |
-| `up` | `down` | Save snapshot, add `skip-reconcile`, scale to 0 | `down` |
+| `unknown` | `down` | Save snapshot, scale to 0 | `down` |
+| `up` | `down` | Save snapshot, scale to 0 | `down` |
 | `down` | `down` | **No-op** — already down, consume annotation | `down` |
-| `down` | `up` | Restore replicas from snapshot, remove `skip-reconcile`, clear snapshot | `up` |
+| `down` | `up` | Restore replicas from snapshot, clear snapshot | `up` |
 | `up` | `up` | **No-op** — already up, consume annotation | `up` |
 | `unknown` | `up` | **Error** — no snapshot to restore from, reject with event | `unknown` |
 
@@ -152,12 +152,6 @@ type HistoryEntry struct {
 | Annotation | Value | Set by | Consumed by |
 |---|---|---|---|
 | `kshutdown.io/command` | `down` or `up` | CLI | Operator (deleted after execution) |
-
-### ArgoCD annotation (operator → target resources)
-
-| Annotation | Value | Set on | Effect |
-|---|---|---|---|
-| `argocd.argoproj.io/skip-reconcile` | `"true"` | Target Deployments/StatefulSets/CronJobs | ArgoCD ignores the resource during sync |
 
 ### Emergency / GitOps safety annotation
 
@@ -279,8 +273,6 @@ const (
     CommandDown       = "down"
     CommandUp         = "up"
 
-    // ArgoCD annotations applied to target resources
-    AnnotationSkipReconcile = "argocd.argoproj.io/skip-reconcile"
     AnnotationSyncOptions   = "argocd.argoproj.io/sync-options"
     SyncOptionPrunefalse    = "Prune=false"
 

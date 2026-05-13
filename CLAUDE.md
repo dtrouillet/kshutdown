@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **kshutdown** is a Kubernetes operator + kubectl plugin that lets operators shut down and restart a functional slice — a set of workloads spread across multiple namespaces and ArgoCD Applications — quickly, safely, and reversibly, without breaking the GitOps model.
 
-The core mechanism is the native ArgoCD annotation `argocd.argoproj.io/skip-reconcile: "true"`, which prevents ArgoCD from reconciling a specific resource even during a sync triggered by a Git commit.
+ArgoCD compatibility relies on `ignoreDifferences` + `RespectIgnoreDifferences=true` configured on each ArgoCD Application, which prevents ArgoCD from reverting scaled-to-zero replicas during a sync.
 
 ## Tech stack
 
@@ -56,14 +56,13 @@ kshutdown/
 **Shutdown (`kubectl kshutdown down <name> --reason "..."`):**
 1. CLI emits a `SelfSubjectAccessReview` for each target resource to verify user RBAC
 2. If all resources are authorized, CLI adds a command annotation on the `ShutdownGroup`
-3. Operator detects the annotation, saves replicas in `status.snapshot`, adds `skip-reconcile` on each resource, and scales to 0
+3. Operator detects the annotation, saves replicas in `status.snapshot`, and scales to 0
 4. Command annotation is consumed (removed) after execution — idempotent
 
 **Startup (`kubectl kshutdown up <name>`):**
 1. Same `SelfSubjectAccessReview` checks
 2. Operator restores replicas from `status.snapshot`
-3. Operator removes `skip-reconcile` annotation
-4. ArgoCD resumes control naturally at the next sync cycle
+3. ArgoCD resumes control naturally at the next sync cycle
 
 ### Authorization model
 
@@ -71,7 +70,7 @@ kshutdown has no own permission system. Authorization relies entirely on native 
 
 ## Key design decisions
 
-- **`skip-reconcile` over other approaches**: Suspending ArgoCD sync or modifying Git is too coarse or too slow. `skip-reconcile` is per-resource, native to ArgoCD, reversible, and survives Git commits.
+- **`ignoreDifferences` + `RespectIgnoreDifferences=true`**: ArgoCD compatibility relies on these fields configured on each Application. This prevents ArgoCD from reverting `spec.replicas` and `spec.suspend` changes during a sync.
 - **Operator never called directly**: Users interact only with `ShutdownGroup` resources via annotations; the operator handles reconciliation.
 - **`--partial` flag**: If a user lacks rights on some targets, the CLI refuses by default and lists forbidden resources. `--partial` acts only on authorized resources with an explicit warning.
 - **Emergency `define`**: In an incident, a `ShutdownGroup` can be created ad-hoc outside Git. It must be annotated with `argocd.argoproj.io/sync-options: Prune=false` to avoid ArgoCD pruning it.

@@ -32,10 +32,6 @@ const (
 	CommandDown = "down"
 	CommandUp   = "up"
 
-	// AnnotationSkipReconcile is applied by the operator to target workloads
-	// to prevent ArgoCD from reverting scale-to-zero during a sync.
-	AnnotationSkipReconcile = "argocd.argoproj.io/skip-reconcile"
-
 	// AnnotationSyncOptions is applied by `kubectl kshutdown define` on ad-hoc
 	// ShutdownGroups to prevent ArgoCD from pruning them.
 	AnnotationSyncOptions = "argocd.argoproj.io/sync-options"

@@ -41,24 +41,38 @@ Le besoin est né d'un problème récurrent en environnement GitOps strict : en 
 
 - kshutdown est déployé sur chaque cluster applicatif (pas sur le cluster ArgoCD)
 
-# **3. Levier technique : skip-reconcile**
+# **3. Levier technique : ignoreDifferences + RespectIgnoreDifferences**
 
-Le mécanisme central de kshutdown repose sur l'annotation native ArgoCD :
+Le mécanisme de compatibilité GitOps de kshutdown repose sur la configuration ArgoCD suivante, posée sur chaque Application concernée :
 
-argocd.argoproj.io/skip-reconcile: "true"
+```yaml
+ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers: [/spec/replicas]
+  - group: apps
+    kind: StatefulSet
+    jsonPointers: [/spec/replicas]
+  - group: batch
+    kind: CronJob
+    jsonPointers: [/spec/suspend]
+syncPolicy:
+  syncOptions:
+    - RespectIgnoreDifferences=true
+```
 
-Posée sur une ressource Kubernetes (Deployment, StatefulSet, etc.), cette annotation indique à ArgoCD de ne pas réconcilier cette ressource spécifique, même lors d'un sync déclenché par un commit Git. ArgoCD verra la ressource comme OutOfSync mais ne la modifiera pas.
+Avec `RespectIgnoreDifferences=true`, ArgoCD ne réécrase jamais `spec.replicas` ni `spec.suspend` lors d'un sync — même déclenché par un commit Git. Cela permet à kshutdown de scaler les workloads à 0 sans que GitOps ne révoque l'action.
 
 ### **Pourquoi ce levier et pas un autre**
 
 | **Approche** | **Verdict** | **Raison** |
 | --- | --- | --- |
-| Scale manuel sans annotation | Rejeté | Révoqué par ArgoCD au prochain sync (selfHeal) |
+| Scale manuel sans configuration ArgoCD | Rejeté | Révoqué par ArgoCD au prochain sync (selfHeal) |
 | Suspendre la sync ArgoCD | Rejeté | Trop grossier — toute l'Application est suspendue |
 | Suspendre l'ApplicationSet | Rejeté | Impact sur toutes les Applications générées |
-| ignoreApplicationDifferences | Rejeté | Annulé lors d'un sync déclenché par un commit Git |
+| skip-reconcile par ressource | Rejeté | Complexité opératoire inutile — ignoreDifferences suffit |
 | Modifier Git en urgence | Rejeté | Lent, risqué, pas atomique sur plusieurs repos |
-| skip-reconcile par ressource | Retenu | Natif ArgoCD, granulaire, réversible, résistant aux commits |
+| ignoreDifferences + RespectIgnoreDifferences | Retenu | Natif ArgoCD, granulaire, aucune annotation à poser sur les workloads |
 
 # **4. Architecture**
 
@@ -154,7 +168,7 @@ status:
 
 - Si toutes les ressources sont autorisées, la CLI pose une annotation de commande sur le ShutdownGroup
 
-- L'operator détecte l'annotation, sauvegarde les replicas dans le status, pose skip-reconcile sur chaque ressource, et scale à 0
+- L'operator détecte l'annotation, sauvegarde les replicas dans le status, et scale à 0
 
 - L'annotation de commande est consommée (retirée) après exécution — idempotent
 
@@ -165,8 +179,6 @@ status:
 - Mêmes vérifications SelfSubjectAccessReview
 
 - L'operator restaure les replicas depuis le status.snapshot
-
-- L'operator retire l'annotation skip-reconcile sur chaque ressource
 
 - ArgoCD reprend la main naturellement au prochain cycle de sync
 

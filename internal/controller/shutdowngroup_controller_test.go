@@ -134,9 +134,6 @@ var _ = Describe("reconcileDown", func() {
 			Expect(updatedDeploy.Spec.Replicas).NotTo(BeNil())
 			Expect(*updatedDeploy.Spec.Replicas).To(Equal(int32(0)))
 
-			By("checking skip-reconcile annotation on deployment")
-			Expect(updatedDeploy.Annotations[kshutdownv1alpha1.AnnotationSkipReconcile]).To(Equal("true"))
-
 			By("checking command annotation is consumed")
 			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationCommand]).To(BeEmpty())
 			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationReason]).To(BeEmpty())

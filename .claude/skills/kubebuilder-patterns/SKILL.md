@@ -104,10 +104,9 @@ Command annotations are the interface between the CLI and the operator.
 
 ```go
 const (
-    AnnotationCommand    = "kshutdown.io/command"
-    CommandDown          = "down"
-    CommandUp            = "up"
-    AnnotationSkipRecon  = "argocd.argoproj.io/skip-reconcile"
+    AnnotationCommand = "kshutdown.io/command"
+    CommandDown       = "down"
+    CommandUp         = "up"
 )
 
 // Consume a command annotation after processing (idempotent)
