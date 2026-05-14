@@ -65,8 +65,10 @@ func newListCmd() *cobra.Command {
 				if state == "" {
 					state = "unknown"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					sg.Name, sg.Namespace, state, since, sg.Status.Operator)
+				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+					sg.Name, sg.Namespace, state, since, sg.Status.Operator); err != nil {
+					return err
+				}
 			}
 			return w.Flush()
 		},

@@ -60,12 +60,14 @@ func newHistoryCmd() *cobra.Command {
 				return err
 			}
 			for _, h := range sg.Status.History {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 					h.Operation,
 					h.At.Format("2006-01-02T15:04:05Z"),
 					h.Operator,
 					orDash(h.Reason),
-				)
+				); err != nil {
+					return err
+				}
 			}
 			return w.Flush()
 		},
