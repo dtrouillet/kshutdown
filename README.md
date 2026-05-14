@@ -56,6 +56,53 @@ For CronJob targets, add:
         - /spec/suspend
 ```
 
+## Helm chart — operator deployment
+
+### Prerequisites
+
+- Helm 4 (`curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash`)
+- ArgoCD prerequisite configured on each Application in scope (see below)
+
+### Install
+
+```sh
+helm install kshutdown charts/kshutdown \
+  --namespace kshutdown-system \
+  --create-namespace \
+  --set image.repository=ghcr.io/dtrouillet/kshutdown \
+  --set image.tag=0.1.0
+```
+
+### Upgrade
+
+```sh
+helm upgrade kshutdown charts/kshutdown \
+  --namespace kshutdown-system \
+  --set image.tag=0.2.0
+```
+
+### Uninstall
+
+```sh
+helm uninstall kshutdown --namespace kshutdown-system
+# CRDs are NOT deleted automatically — remove manually if needed:
+# kubectl delete crd shutdowngroups.kshutdown.io
+```
+
+### Key values
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `image.repository` | `ghcr.io/dtrouillet/kshutdown` | Operator image repository |
+| `image.tag` | `latest` | Image tag |
+| `replicaCount` | `1` | Number of operator replicas |
+| `leaderElection.enabled` | `true` | Enable leader election (required for >1 replica) |
+| `metrics.enabled` | `false` | Expose Prometheus metrics endpoint |
+| `resources` | 500m/128Mi limits | Container resource limits |
+| `nodeSelector` | `{}` | Node selector for the operator pod |
+
+---
+
 ## kubectl plugin — installation and usage
 
 ### Install

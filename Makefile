@@ -112,6 +112,14 @@ build: manifests generate fmt vet ## Build manager binary.
 build-plugin: fmt vet ## Build kubectl-kshutdown CLI plugin binary.
 	go build -o bin/kubectl-kshutdown ./cmd/kubectl-kshutdown/
 
+.PHONY: sync-chart
+sync-chart: manifests ## Sync generated CRD into the Helm chart crds/ directory.
+	cp config/crd/bases/kshutdown.io_shutdowngroups.yaml charts/kshutdown/crds/kshutdown.io_shutdowngroups.yaml
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart.
+	"$(HELM)" lint charts/kshutdown --namespace kshutdown-system
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -185,6 +193,7 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 KIND ?= kind
+HELM ?= $(LOCALBIN)/helm
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest

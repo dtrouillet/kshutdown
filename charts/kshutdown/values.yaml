@@ -1,0 +1,58 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dtrouillet/kshutdown
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Set to false if you want to bring your own ServiceAccount.
+  create: true
+  annotations: {}
+  # Override the generated name.
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+leaderElection:
+  enabled: true
+
+healthProbes:
+  port: 8081
+
+# Metrics are disabled by default. Enable and set bindAddress to expose them.
+# Note: secure metrics (HTTPS) requires additional TLS configuration.
+metrics:
+  enabled: false
+  bindAddress: "0"
