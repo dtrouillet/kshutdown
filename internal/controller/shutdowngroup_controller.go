@@ -38,11 +38,11 @@ type ShutdownGroupReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups/status,verbs=get;patch
-//+kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;patch
-//+kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;patch
+// +kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups/status,verbs=get;patch
+// +kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;patch
+// +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;patch
 
 func (r *ShutdownGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)

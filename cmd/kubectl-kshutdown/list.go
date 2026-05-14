@@ -48,7 +48,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			if len(list.Items) == 0 {
-				fmt.Fprintln(os.Stdout, "No ShutdownGroups found.")
+				fmt.Println("No ShutdownGroups found.")
 				return nil
 			}
 

@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -54,7 +53,10 @@ to prevent ArgoCD from deleting it during a sync.
 				return fmt.Errorf("at least one --namespace/--selector pair is required")
 			}
 			if len(namespaces) != len(selectors) {
-				return fmt.Errorf("--namespace and --selector must appear the same number of times (got %d and %d)", len(namespaces), len(selectors))
+				return fmt.Errorf(
+					"--namespace and --selector must appear the same number of times (got %d and %d)",
+					len(namespaces), len(selectors),
+				)
 			}
 
 			targets := make([]kshutdownv1alpha1.Target, 0, len(namespaces))
@@ -91,16 +93,18 @@ to prevent ArgoCD from deleting it during a sync.
 				return fmt.Errorf("creating shutdowngroup %s/%s: %w", ns, name, err)
 			}
 
-			fmt.Fprintf(os.Stdout, "ShutdownGroup %s/%s created.\n", ns, name)
-			fmt.Fprintf(os.Stdout, "Annotated with %s=%s to prevent ArgoCD pruning.\n",
+			fmt.Printf("ShutdownGroup %s/%s created.\n", ns, name)
+			fmt.Printf("Annotated with %s=%s to prevent ArgoCD pruning.\n",
 				kshutdownv1alpha1.AnnotationSyncOptions, kshutdownv1alpha1.SyncOptionPruneFalse)
-			fmt.Fprintf(os.Stdout, "Export for GitOps when ready: kubectl kshutdown export %s -n %s\n", name, ns)
+			fmt.Printf("Export for GitOps when ready: kubectl kshutdown export %s -n %s\n", name, ns)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringArrayVar(&namespaces, "namespace", nil, "Namespace for a target (repeatable, paired with --selector)")
-	cmd.Flags().StringArrayVar(&selectors, "selector", nil, "Label selector for a target, e.g. app=foo (repeatable, paired with --namespace)")
+	cmd.Flags().StringArrayVar(&namespaces, "namespace", nil,
+		"Namespace for a target (repeatable, paired with --selector)")
+	cmd.Flags().StringArrayVar(&selectors, "selector", nil,
+		"Label selector for a target, e.g. app=foo (repeatable, paired with --namespace)")
 	return cmd
 }
 
@@ -110,7 +114,7 @@ func parseLabelSelector(s string) (map[string]string, error) {
 		return nil, fmt.Errorf("selector must not be empty")
 	}
 	result := make(map[string]string)
-	for _, pair := range strings.Split(s, ",") {
+	for pair := range strings.SplitSeq(s, ",") {
 		pair = strings.TrimSpace(pair)
 		parts := strings.SplitN(pair, "=", 2)
 		if len(parts) != 2 || parts[0] == "" {

@@ -118,7 +118,12 @@ func newDownCmd() *cobra.Command {
 
 // checkDownPermissions checks patch permission for each workload targeted by the ShutdownGroup.
 // Returns a list of denied resource identifiers.
-func checkDownPermissions(ctx context.Context, c client.Client, cs *kubernetes.Clientset, sg *kshutdownv1alpha1.ShutdownGroup) ([]string, error) {
+func checkDownPermissions(
+	ctx context.Context,
+	c client.Client,
+	cs *kubernetes.Clientset,
+	sg *kshutdownv1alpha1.ShutdownGroup,
+) ([]string, error) {
 	var forbidden []string
 
 	for _, target := range sg.Spec.Targets {

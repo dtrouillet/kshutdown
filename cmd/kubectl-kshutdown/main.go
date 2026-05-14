@@ -83,7 +83,8 @@ func main() {
 		Short: "Manage functional shutdown groups on Kubernetes",
 	}
 
-	root.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (defaults to KUBECONFIG env / ~/.kube/config)")
+	root.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "",
+		"Path to kubeconfig (defaults to KUBECONFIG env / ~/.kube/config)")
 	root.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace of the ShutdownGroup")
 
 	root.AddCommand(

@@ -51,12 +51,14 @@ func newHistoryCmd() *cobra.Command {
 			}
 
 			if len(sg.Status.History) == 0 {
-				fmt.Fprintln(os.Stdout, "No history recorded.")
+				fmt.Println("No history recorded.")
 				return nil
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "OPERATION\tAT\tOPERATOR\tREASON")
+			if _, err := fmt.Fprintln(w, "OPERATION\tAT\tOPERATOR\tREASON"); err != nil {
+				return err
+			}
 			for _, h := range sg.Status.History {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 					h.Operation,
