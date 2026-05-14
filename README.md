@@ -56,6 +56,31 @@ For CronJob targets, add:
         - /spec/suspend
 ```
 
+## Images & Releases
+
+### Operator image (GHCR)
+
+```sh
+docker pull ghcr.io/dtrouillet/kshutdown:latest       # last commit on master
+docker pull ghcr.io/dtrouillet/kshutdown:0.1.0        # specific release
+```
+
+The image is published automatically on every push to `master` (`latest`) and on every `v*.*.*` tag (semver tags).
+
+### Helm repository (GitHub Pages)
+
+```sh
+helm repo add kshutdown https://dtrouillet.github.io/kshutdown
+helm repo update
+helm search repo kshutdown
+```
+
+The chart is published automatically on every `v*.*.*` tag via the `helm-release` GitHub Actions workflow.
+
+> **One-time setup (repo owner):** enable GitHub Pages in repository Settings → Pages → Source: `gh-pages` branch, root `/`. The `helm-release` workflow creates the branch on first run.
+
+---
+
 ## Helm chart — operator deployment
 
 ### Prerequisites
