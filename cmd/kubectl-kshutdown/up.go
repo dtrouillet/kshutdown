@@ -29,7 +29,6 @@ import (
 )
 
 func newUpCmd() *cobra.Command {
-	var partial bool
 	var dryRun bool
 
 	cmd := &cobra.Command{
@@ -60,10 +59,15 @@ func newUpCmd() *cobra.Command {
 			}
 
 			if len(sg.Status.Snapshot) == 0 {
-				return fmt.Errorf("ShutdownGroup %s/%s has no snapshot — cannot restore (state: %s)", ns, name, sg.Status.State)
+				return fmt.Errorf(
+					"ShutdownGroup %s/%s has no snapshot — cannot restore (state: %s)",
+					ns, name, sg.Status.State,
+				)
 			}
 
-			// Check patch permission for each resource in the snapshot.
+			// Check patch permission for every resource in the snapshot.
+			// --partial is intentionally absent: the operator restores the full snapshot,
+			// so partial permission would silently skip resources the user expects to come back.
 			var forbidden []string
 			for _, snap := range sg.Status.Snapshot {
 				var group, resource string
@@ -91,10 +95,7 @@ func newUpCmd() *cobra.Command {
 				for _, f := range forbidden {
 					fmt.Fprintf(os.Stderr, "  %s\n", f)
 				}
-				if !partial {
-					return fmt.Errorf("aborting: insufficient permissions (use --partial to proceed with authorized resources only)")
-				}
-				fmt.Fprintf(os.Stderr, "Warning: proceeding with authorized resources only (--partial)\n")
+				return fmt.Errorf("aborting: insufficient permissions on %d resource(s)", len(forbidden))
 			}
 
 			if dryRun {
@@ -123,7 +124,6 @@ func newUpCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&partial, "partial", false, "Proceed with authorized resources only if some are forbidden")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate the action without applying it")
 	return cmd
 }

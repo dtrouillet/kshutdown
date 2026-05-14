@@ -24,7 +24,9 @@ jobs:
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm 4
-        run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+        uses: azure/setup-helm@v4
+        with:
+          version: '4.x'
 
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.7.0

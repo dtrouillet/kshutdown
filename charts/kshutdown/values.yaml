@@ -51,8 +51,10 @@ leaderElection:
 healthProbes:
   port: 8081
 
-# Metrics are disabled by default. Enable and set bindAddress to expose them.
-# Note: secure metrics (HTTPS) requires additional TLS configuration.
+# Metrics endpoint. To enable, set both enabled=true and a non-zero bindAddress.
+# Example: enabled: true, bindAddress: ":8443" (HTTPS, requires TLS config)
+#          enabled: true, bindAddress: ":8080" (HTTP)
+# Setting enabled=true while leaving bindAddress="0" keeps metrics disabled.
 metrics:
   enabled: false
   bindAddress: "0"

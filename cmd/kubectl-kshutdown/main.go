@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -59,17 +60,17 @@ func newClients() (client.Client, *kubernetes.Clientset, error) {
 		&clientcmd.ConfigOverrides{},
 	).ClientConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
 
 	c, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("creating controller-runtime client: %w", err)
 	}
 
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("creating kubernetes clientset: %w", err)
 	}
 
 	return c, cs, nil
