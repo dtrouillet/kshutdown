@@ -56,6 +56,83 @@ For CronJob targets, add:
         - /spec/suspend
 ```
 
+## kubectl plugin — installation and usage
+
+### Install
+
+Build the plugin and place it on your `PATH`:
+
+```sh
+make build-plugin
+cp bin/kubectl-kshutdown /usr/local/bin/kubectl-kshutdown
+# or via krew (once published):
+# kubectl krew install kshutdown
+```
+
+Verify:
+```sh
+kubectl kshutdown --help
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `kubectl kshutdown down <name> -n <ns> --reason "..."` | Shut down a functional slice (reason required) |
+| `kubectl kshutdown up <name> -n <ns>` | Restart a functional slice |
+| `kubectl kshutdown status <name> -n <ns>` | Detailed state (state, since, operator, reason, snapshot) |
+| `kubectl kshutdown list [-n <ns>]` | List all ShutdownGroups (all namespaces if -n omitted) |
+| `kubectl kshutdown history <name> -n <ns>` | Operation history |
+| `kubectl kshutdown define <name> -n <ns> --namespace <tns> --selector <sel>` | Create a ShutdownGroup ad-hoc during an incident |
+| `kubectl kshutdown export <name> -n <ns>` | Export clean YAML for GitOps |
+
+Common flags: `--namespace / -n`, `--partial`, `--dry-run`, `--kubeconfig`
+
+### Emergency shutdown workflow
+
+```sh
+# 1. Shut down payment stack during P1 incident
+kubectl kshutdown down payment-stack -n payments --reason "incident P1 #4521"
+
+# 2. Check status
+kubectl kshutdown status payment-stack -n payments
+
+# 3. Restart when incident is resolved
+kubectl kshutdown up payment-stack -n payments
+
+# 4. Verify history
+kubectl kshutdown history payment-stack -n payments
+```
+
+### Ad-hoc ShutdownGroup (no pre-existing CRD)
+
+```sh
+kubectl kshutdown define payment-emergency -n payments \
+  --namespace payments --selector app.kubernetes.io/part-of=payment \
+  --namespace payments-cron --selector app.kubernetes.io/part-of=payment
+
+# Export for GitOps after the incident
+kubectl kshutdown export payment-emergency -n payments > gitops/payments/shutdowngroup-emergency.yaml
+```
+
+### RBAC — required user permissions
+
+The user must have `get;list;patch` on `shutdowngroups` in the target namespace:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shutdowngroup-actioner
+  namespace: payments
+rules:
+  - apiGroups: ["kshutdown.io"]
+    resources: ["shutdowngroups"]
+    verbs: ["get", "list", "patch"]
+```
+
+---
+
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
 
