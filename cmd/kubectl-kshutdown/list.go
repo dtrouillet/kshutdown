@@ -53,7 +53,9 @@ func newListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tNAMESPACE\tSTATE\tSINCE\tOPERATOR")
+			if _, err := fmt.Fprintln(w, "NAME\tNAMESPACE\tSTATE\tSINCE\tOPERATOR"); err != nil {
+				return err
+			}
 			for _, sg := range list.Items {
 				since := "-"
 				if sg.Status.Since != nil {

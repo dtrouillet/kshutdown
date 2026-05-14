@@ -63,7 +63,7 @@ func newDownCmd() *cobra.Command {
 			}
 
 			if sg.Status.State == kshutdownv1alpha1.StateDown {
-				fmt.Fprintf(os.Stdout, "ShutdownGroup %s/%s is already down.\n", ns, name)
+				fmt.Printf("ShutdownGroup %s/%s is already down.\n", ns, name)
 				return nil
 			}
 
@@ -84,7 +84,7 @@ func newDownCmd() *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stdout, "[dry-run] Would shut down ShutdownGroup %s/%s (reason: %s)\n", ns, name, reason)
+				fmt.Printf("[dry-run] Would shut down ShutdownGroup %s/%s (reason: %s)\n", ns, name, reason)
 				return nil
 			}
 
@@ -105,7 +105,7 @@ func newDownCmd() *cobra.Command {
 				return fmt.Errorf("patching shutdowngroup %s/%s: %w", ns, name, err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Shutdown triggered for %s/%s (operator: %s, reason: %s)\n", ns, name, username, reason)
+			fmt.Printf("Shutdown triggered for %s/%s (operator: %s, reason: %s)\n", ns, name, username, reason)
 			return nil
 		},
 	}

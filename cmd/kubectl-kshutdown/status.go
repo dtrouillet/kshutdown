@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
@@ -54,34 +53,34 @@ func newStatusCmd() *cobra.Command {
 				state = "unknown"
 			}
 
-			fmt.Fprintf(os.Stdout, "Name:       %s\n", sg.Name)
-			fmt.Fprintf(os.Stdout, "Namespace:  %s\n", sg.Namespace)
-			fmt.Fprintf(os.Stdout, "State:      %s\n", state)
+			fmt.Printf("Name:       %s\n", sg.Name)
+			fmt.Printf("Namespace:  %s\n", sg.Namespace)
+			fmt.Printf("State:      %s\n", state)
 
 			if sg.Status.Since != nil {
-				fmt.Fprintf(os.Stdout, "Since:      %s (%s ago)\n",
+				fmt.Printf("Since:      %s (%s ago)\n",
 					sg.Status.Since.Format("2006-01-02T15:04:05Z"),
 					formatAge(sg.Status.Since.Time))
 			} else {
-				fmt.Fprintf(os.Stdout, "Since:      -\n")
+				fmt.Printf("Since:      -\n")
 			}
 
-			fmt.Fprintf(os.Stdout, "Operator:   %s\n", orDash(sg.Status.Operator))
-			fmt.Fprintf(os.Stdout, "Reason:     %s\n", orDash(sg.Status.Reason))
+			fmt.Printf("Operator:   %s\n", orDash(sg.Status.Operator))
+			fmt.Printf("Reason:     %s\n", orDash(sg.Status.Reason))
 
-			fmt.Fprintf(os.Stdout, "\nTargets (%d):\n", len(sg.Spec.Targets))
+			fmt.Printf("\nTargets (%d):\n", len(sg.Spec.Targets))
 			for _, t := range sg.Spec.Targets {
 				tns := t.Namespace
 				if tns == "" {
 					tns = sg.Namespace
 				}
-				fmt.Fprintf(os.Stdout, "  namespace=%s selector=%v\n", tns, t.LabelSelector)
+				fmt.Printf("  namespace=%s selector=%v\n", tns, t.LabelSelector)
 			}
 
 			if len(sg.Status.Snapshot) > 0 {
-				fmt.Fprintf(os.Stdout, "\nSnapshot (%d resources):\n", len(sg.Status.Snapshot))
+				fmt.Printf("\nSnapshot (%d resources):\n", len(sg.Status.Snapshot))
 				for _, s := range sg.Status.Snapshot {
-					fmt.Fprintf(os.Stdout, "  %-12s %s/%s  previousReplicas=%d\n",
+					fmt.Printf("  %-12s %s/%s  previousReplicas=%d\n",
 						s.Kind, s.Namespace, s.Name, s.PreviousReplicas)
 				}
 			}

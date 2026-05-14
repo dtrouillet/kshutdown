@@ -54,7 +54,7 @@ func newUpCmd() *cobra.Command {
 			}
 
 			if sg.Status.State == kshutdownv1alpha1.StateUp {
-				fmt.Fprintf(os.Stdout, "ShutdownGroup %s/%s is already up.\n", ns, name)
+				fmt.Printf("ShutdownGroup %s/%s is already up.\n", ns, name)
 				return nil
 			}
 
@@ -99,7 +99,7 @@ func newUpCmd() *cobra.Command {
 			}
 
 			if dryRun {
-				fmt.Fprintf(os.Stdout, "[dry-run] Would restart ShutdownGroup %s/%s\n", ns, name)
+				fmt.Printf("[dry-run] Would restart ShutdownGroup %s/%s\n", ns, name)
 				return nil
 			}
 
@@ -119,7 +119,7 @@ func newUpCmd() *cobra.Command {
 				return fmt.Errorf("patching shutdowngroup %s/%s: %w", ns, name, err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Restart triggered for %s/%s (operator: %s)\n", ns, name, username)
+			fmt.Printf("Restart triggered for %s/%s (operator: %s)\n", ns, name, username)
 			return nil
 		},
 	}
