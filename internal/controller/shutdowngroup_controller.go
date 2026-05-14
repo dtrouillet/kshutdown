@@ -62,13 +62,7 @@ func (r *ShutdownGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	case kshutdownv1alpha1.CommandDown:
 		return r.reconcileDown(ctx, &sg)
 	case kshutdownv1alpha1.CommandUp:
-		// reconcileUp not yet implemented — consume annotation to avoid it lingering.
-		log.Info("reconcileUp not yet implemented, consuming annotation")
-		return ctrl.Result{}, r.consumeAnnotations(ctx, &sg,
-			kshutdownv1alpha1.AnnotationCommand,
-			kshutdownv1alpha1.AnnotationReason,
-			kshutdownv1alpha1.AnnotationOperator,
-		)
+		return r.reconcileUp(ctx, &sg)
 	default:
 		return ctrl.Result{}, nil
 	}
@@ -148,6 +142,132 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 		return ctrl.Result{}, fmt.Errorf("consuming annotations after shutdown: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *ShutdownGroupReconciler) reconcileUp(ctx context.Context, sg *kshutdownv1alpha1.ShutdownGroup) (ctrl.Result, error) {
+	log := logf.FromContext(ctx).WithValues("shutdowngroup", sg.Namespace+"/"+sg.Name)
+
+	// No-op: already up — consume annotation and return.
+	if sg.Status.State == kshutdownv1alpha1.StateUp {
+		log.Info("already up, consuming annotation")
+		return ctrl.Result{}, r.consumeAnnotations(ctx, sg,
+			kshutdownv1alpha1.AnnotationCommand,
+			kshutdownv1alpha1.AnnotationReason,
+			kshutdownv1alpha1.AnnotationOperator,
+		)
+	}
+
+	// Error: no snapshot to restore from.
+	if len(sg.Status.Snapshot) == 0 {
+		return ctrl.Result{}, fmt.Errorf("cannot reconcileUp from state %q with empty snapshot", sg.Status.State)
+	}
+
+	operator := sg.Annotations[kshutdownv1alpha1.AnnotationOperator]
+	reason := sg.Annotations[kshutdownv1alpha1.AnnotationReason]
+	resourceCount := len(sg.Status.Snapshot)
+
+	// Restore each target from snapshot.
+	for _, entry := range sg.Status.Snapshot {
+		switch entry.Kind {
+		case "CronJob":
+			if err := r.unsuspendCronJob(ctx, entry); err != nil {
+				return ctrl.Result{}, fmt.Errorf("unsuspending %s/%s: %w", entry.Namespace, entry.Name, err)
+			}
+		default:
+			if err := r.restoreReplicas(ctx, entry); err != nil {
+				return ctrl.Result{}, fmt.Errorf("restoring %s %s/%s: %w", entry.Kind, entry.Namespace, entry.Name, err)
+			}
+		}
+	}
+
+	// Mark state as up and clear snapshot — only after all restores succeed.
+	now := metav1.Now()
+	patch := client.MergeFrom(sg.DeepCopy())
+	sg.Status.State = kshutdownv1alpha1.StateUp
+	sg.Status.Since = &now
+	sg.Status.Operator = operator
+	sg.Status.Reason = reason
+	sg.Status.Snapshot = nil
+	if err := r.Status().Patch(ctx, sg, patch); err != nil {
+		return ctrl.Result{}, fmt.Errorf("patching state to up: %w", err)
+	}
+
+	if err := r.appendHistory(ctx, sg, kshutdownv1alpha1.HistoryEntry{
+		Operation: kshutdownv1alpha1.CommandUp,
+		At:        now,
+		Operator:  operator,
+		Reason:    reason,
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("appending history after startup: %w", err)
+	}
+
+	log.Info("startup complete", "operator", operator, "resources", resourceCount)
+
+	if err := r.consumeAnnotations(ctx, sg,
+		kshutdownv1alpha1.AnnotationCommand,
+		kshutdownv1alpha1.AnnotationReason,
+		kshutdownv1alpha1.AnnotationOperator,
+	); err != nil {
+		return ctrl.Result{}, fmt.Errorf("consuming annotations after startup: %w", err)
+	}
+	return ctrl.Result{}, nil
+}
+
+// restoreReplicas patches spec.replicas back to the value captured in the snapshot.
+func (r *ShutdownGroupReconciler) restoreReplicas(ctx context.Context, snap kshutdownv1alpha1.ResourceSnapshot) error {
+	key := types.NamespacedName{Namespace: snap.Namespace, Name: snap.Name}
+	replicas := snap.PreviousReplicas
+	switch snap.Kind {
+	case "Deployment":
+		var obj appsv1.Deployment
+		if err := r.Get(ctx, key, &obj); err != nil {
+			return fmt.Errorf("getting deployment %s/%s: %w", snap.Namespace, snap.Name, err)
+		}
+		if obj.Spec.Replicas != nil && *obj.Spec.Replicas == replicas {
+			return nil
+		}
+		patch := client.MergeFrom(obj.DeepCopy())
+		obj.Spec.Replicas = &replicas
+		if err := r.Patch(ctx, &obj, patch); err != nil {
+			return fmt.Errorf("restoring replicas for deployment %s/%s: %w", snap.Namespace, snap.Name, err)
+		}
+	case "StatefulSet":
+		var obj appsv1.StatefulSet
+		if err := r.Get(ctx, key, &obj); err != nil {
+			return fmt.Errorf("getting statefulset %s/%s: %w", snap.Namespace, snap.Name, err)
+		}
+		if obj.Spec.Replicas != nil && *obj.Spec.Replicas == replicas {
+			return nil
+		}
+		patch := client.MergeFrom(obj.DeepCopy())
+		obj.Spec.Replicas = &replicas
+		if err := r.Patch(ctx, &obj, patch); err != nil {
+			return fmt.Errorf("restoring replicas for statefulset %s/%s: %w", snap.Namespace, snap.Name, err)
+		}
+	}
+	return nil
+}
+
+// unsuspendCronJob patches spec.suspend=false only if the CronJob was active before shutdown
+// (previousReplicas==0). If it was already suspended (previousReplicas==1), it is left as-is.
+func (r *ShutdownGroupReconciler) unsuspendCronJob(ctx context.Context, snap kshutdownv1alpha1.ResourceSnapshot) error {
+	if snap.PreviousReplicas != 0 {
+		return nil
+	}
+	var obj batchv1.CronJob
+	if err := r.Get(ctx, types.NamespacedName{Namespace: snap.Namespace, Name: snap.Name}, &obj); err != nil {
+		return fmt.Errorf("getting cronjob %s/%s: %w", snap.Namespace, snap.Name, err)
+	}
+	if obj.Spec.Suspend == nil || !*obj.Spec.Suspend {
+		return nil
+	}
+	f := false
+	patch := client.MergeFrom(obj.DeepCopy())
+	obj.Spec.Suspend = &f
+	if err := r.Patch(ctx, &obj, patch); err != nil {
+		return fmt.Errorf("unsuspending cronjob %s/%s: %w", snap.Namespace, snap.Name, err)
+	}
+	return nil
 }
 
 // collectTargets lists all Deployment, StatefulSet, and CronJob resources

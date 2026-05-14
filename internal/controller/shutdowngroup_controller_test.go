@@ -419,3 +419,331 @@ var _ = Describe("reconcileDown", func() {
 		})
 	})
 })
+
+func triggerUp(ctx context.Context, sg *kshutdownv1alpha1.ShutdownGroup, operator string) {
+	GinkgoHelper()
+	patch := client.MergeFrom(sg.DeepCopy())
+	if sg.Annotations == nil {
+		sg.Annotations = make(map[string]string)
+	}
+	sg.Annotations[kshutdownv1alpha1.AnnotationCommand] = kshutdownv1alpha1.CommandUp
+	sg.Annotations[kshutdownv1alpha1.AnnotationOperator] = operator
+	Expect(k8sClient.Patch(ctx, sg, patch)).To(Succeed())
+}
+
+// --- TASK-8 to 12: reconcileUp ---
+
+var _ = Describe("reconcileUp", func() {
+	ctx := context.Background()
+	var r *ShutdownGroupReconciler
+	BeforeEach(func() { r = newReconciler() })
+
+	// TASK-8: happy path — Deployment restored from down state
+	Context("happy path — Deployment restored to previous replicas", func() {
+		const ns = "default"
+		const sgName = "sg-up-deploy"
+		const deployName = "api-restored"
+
+		var deploy appsv1.Deployment
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		BeforeEach(func() {
+			deploy = appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      deployName,
+					Namespace: ns,
+					Labels:    map[string]string{"app": "api-restored"},
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr(int32(3)),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api-restored"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api-restored"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "nginx"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &deploy)).To(Succeed())
+
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: sgName, Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"app": "api-restored"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+
+			// Shut down first
+			triggerDown(ctx, &sg, "user-a", "test shutdown")
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sgName, Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: ns}, &sg)).To(Succeed())
+			Expect(sg.Status.State).To(Equal(kshutdownv1alpha1.StateDown))
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &deploy)).To(Succeed())
+		})
+
+		It("restores replicas, sets state=up, clears snapshot, consumes annotation", func() {
+			triggerUp(ctx, &sg, "user-b")
+
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sgName, Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: ns}, &sg)).To(Succeed())
+
+			By("checking status.state=up")
+			Expect(sg.Status.State).To(Equal(kshutdownv1alpha1.StateUp))
+			Expect(sg.Status.Operator).To(Equal("user-b"))
+			Expect(sg.Status.Since).NotTo(BeNil())
+
+			By("checking snapshot is cleared")
+			Expect(sg.Status.Snapshot).To(BeEmpty())
+
+			By("checking deployment replicas are restored")
+			var d appsv1.Deployment
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: deployName, Namespace: ns}, &d)).To(Succeed())
+			Expect(d.Spec.Replicas).NotTo(BeNil())
+			Expect(*d.Spec.Replicas).To(Equal(int32(3)))
+
+			By("checking command annotation is consumed")
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationCommand]).To(BeEmpty())
+
+			By("checking history has up entry")
+			Expect(sg.Status.History).To(HaveLen(2))
+			Expect(sg.Status.History[0].Operation).To(Equal(kshutdownv1alpha1.CommandUp))
+			Expect(sg.Status.History[0].Operator).To(Equal("user-b"))
+		})
+	})
+
+	// TASK-9: double-up idempotence
+	Context("double-up — state already up", func() {
+		const ns = "default"
+		const sgName = "sg-double-up"
+
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		BeforeEach(func() {
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: sgName, Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"app": "noop"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+
+			patch := client.MergeFrom(sg.DeepCopy())
+			sg.Status.State = kshutdownv1alpha1.StateUp
+			Expect(k8sClient.Status().Patch(ctx, &sg, patch)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+		})
+
+		It("is a no-op and consumes the annotation", func() {
+			triggerUp(ctx, &sg, "user-c")
+
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sgName, Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: ns}, &sg)).To(Succeed())
+			Expect(sg.Status.State).To(Equal(kshutdownv1alpha1.StateUp))
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationCommand]).To(BeEmpty())
+		})
+	})
+
+	// TASK-10: up from unknown with empty snapshot → error, annotation kept
+	Context("up from unknown with empty snapshot", func() {
+		const ns = "default"
+		const sgName = "sg-up-unknown"
+
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		BeforeEach(func() {
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: sgName, Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"app": "unknown"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+		})
+
+		It("returns an error and leaves the command annotation intact", func() {
+			triggerUp(ctx, &sg, "user-d")
+
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sgName, Namespace: ns}})
+			Expect(err).To(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: ns}, &sg)).To(Succeed())
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationCommand]).To(Equal(kshutdownv1alpha1.CommandUp))
+			Expect(sg.Status.State).NotTo(Equal(kshutdownv1alpha1.StateUp))
+		})
+	})
+
+	// TASK-11: CronJob previousReplicas=0 → unsuspend; previousReplicas=1 → unchanged
+	Context("CronJob restore", func() {
+		const ns = "default"
+
+		var cj batchv1.CronJob
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		makeCronJob := func(name string, suspended bool) batchv1.CronJob {
+			cj := batchv1.CronJob{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"cj": name}},
+				Spec: batchv1.CronJobSpec{
+					Schedule: "0 * * * *",
+					JobTemplate: batchv1.JobTemplateSpec{
+						Spec: batchv1.JobSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers:    []corev1.Container{{Name: "job", Image: "busybox"}},
+									RestartPolicy: corev1.RestartPolicyOnFailure,
+								},
+							},
+						},
+					},
+				},
+			}
+			if suspended {
+				cj.Spec.Suspend = ptr(true)
+			}
+			return cj
+		}
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &cj)).To(Succeed())
+		})
+
+		It("unsuspends a CronJob that was active before shutdown (previousReplicas=0)", func() {
+			cj = makeCronJob("cj-was-active", false)
+			Expect(k8sClient.Create(ctx, &cj)).To(Succeed())
+
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "sg-cj-active", Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"cj": "cj-was-active"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+
+			triggerDown(ctx, &sg, "user-e", "cj test")
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "sg-cj-active", Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			triggerUp(ctx, &sg, "user-e")
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "sg-cj-active", Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updatedCJ batchv1.CronJob
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cj-was-active", Namespace: ns}, &updatedCJ)).To(Succeed())
+			Expect(updatedCJ.Spec.Suspend).To(Or(BeNil(), HaveValue(BeFalse())))
+		})
+
+		It("leaves a CronJob suspended if it was already suspended before shutdown (previousReplicas=1)", func() {
+			cj = makeCronJob("cj-was-suspended", true)
+			Expect(k8sClient.Create(ctx, &cj)).To(Succeed())
+
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: "sg-cj-suspended", Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"cj": "cj-was-suspended"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+
+			triggerDown(ctx, &sg, "user-f", "cj suspended test")
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "sg-cj-suspended", Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "sg-cj-suspended", Namespace: ns}, &sg)).To(Succeed())
+			Expect(sg.Status.Snapshot[0].PreviousReplicas).To(Equal(int32(1)))
+
+			triggerUp(ctx, &sg, "user-f")
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "sg-cj-suspended", Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			var updatedCJ batchv1.CronJob
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cj-was-suspended", Namespace: ns}, &updatedCJ)).To(Succeed())
+			Expect(updatedCJ.Spec.Suspend).NotTo(BeNil())
+			Expect(*updatedCJ.Spec.Suspend).To(BeTrue())
+		})
+	})
+
+	// TASK-12: crash-recovery — snapshot present, state=down → restore completes
+	Context("crash-recovery — snapshot present, state still down", func() {
+		const ns = "default"
+		const sgName = "sg-crash-recovery"
+		const deployName = "recovery-deploy"
+
+		var deploy appsv1.Deployment
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		BeforeEach(func() {
+			deploy = appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      deployName,
+					Namespace: ns,
+					Labels:    map[string]string{"app": "recovery"},
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr(int32(2)),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "recovery"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "recovery"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "nginx"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &deploy)).To(Succeed())
+
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: sgName, Namespace: ns},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{{LabelSelector: map[string]string{"app": "recovery"}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+
+			// Simulate crash-recovery: snapshot written, state=down, but up command is pending.
+			// Scale the deployment to 0 manually to simulate what reconcileDown would have done.
+			deployPatch := client.MergeFrom(deploy.DeepCopy())
+			deploy.Spec.Replicas = ptr(int32(0))
+			Expect(k8sClient.Patch(ctx, &deploy, deployPatch)).To(Succeed())
+
+			statusPatch := client.MergeFrom(sg.DeepCopy())
+			sg.Status.State = kshutdownv1alpha1.StateDown
+			sg.Status.Snapshot = []kshutdownv1alpha1.ResourceSnapshot{
+				{Namespace: ns, Name: deployName, Kind: "Deployment", PreviousReplicas: 2},
+			}
+			Expect(k8sClient.Status().Patch(ctx, &sg, statusPatch)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &deploy)).To(Succeed())
+		})
+
+		It("restores replicas and clears snapshot even when re-entered after a crash", func() {
+			triggerUp(ctx, &sg, "user-g")
+
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: sgName, Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: ns}, &sg)).To(Succeed())
+			Expect(sg.Status.State).To(Equal(kshutdownv1alpha1.StateUp))
+			Expect(sg.Status.Snapshot).To(BeEmpty())
+
+			var d appsv1.Deployment
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: deployName, Namespace: ns}, &d)).To(Succeed())
+			Expect(*d.Spec.Replicas).To(Equal(int32(2)))
+		})
+	})
+})
