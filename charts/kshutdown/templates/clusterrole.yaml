@@ -7,10 +7,10 @@ metadata:
 rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
-  verbs: ["get", "list", "patch"]
+  verbs: ["get", "list", "watch", "patch"]
 - apiGroups: ["batch"]
   resources: ["cronjobs"]
-  verbs: ["get", "list", "patch"]
+  verbs: ["get", "list", "watch", "patch"]
 - apiGroups: ["kshutdown.io"]
   resources: ["shutdowngroups"]
   verbs: ["get", "list", "watch", "patch"]
