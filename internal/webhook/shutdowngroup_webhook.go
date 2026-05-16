@@ -18,9 +18,11 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	admissionv1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,8 +33,52 @@ import (
 	"github.com/dtrouillet/kshutdown/internal/authz"
 )
 
+// +kubebuilder:webhook:path=/mutate-kshutdown-io-v1alpha1-shutdowngroup,mutating=true,failurePolicy=Ignore,sideEffects=None,groups=kshutdown.io,resources=shutdowngroups,verbs=create;update,versions=v1alpha1,name=mshutdowngroup.kb.io,admissionReviewVersions=v1
+
+// ShutdownGroupMutator injects kshutdown.io/operator from the admission request UserInfo
+// whenever kshutdown.io/command is set, ensuring the operator field reflects the real
+// Kubernetes identity whether the user goes through the CLI or kubectl directly.
+type ShutdownGroupMutator struct{}
+
+// SetupWebhookWithManager registers the mutator with the controller-runtime manager.
+func (m *ShutdownGroupMutator) SetupWebhookWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewWebhookManagedBy(mgr, &kshutdownv1alpha1.ShutdownGroup{}).
+		WithDefaulter(m).
+		Complete()
+}
+
+func (m *ShutdownGroupMutator) Default(ctx context.Context, sg *kshutdownv1alpha1.ShutdownGroup) error {
+	newCmd := sg.Annotations[kshutdownv1alpha1.AnnotationCommand]
+	if newCmd == "" {
+		return nil
+	}
+
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("retrieving admission request: %w", err)
+	}
+
+	// On UPDATE, only inject when the command annotation is newly set or changed.
+	// If the command was already present and unchanged, an unrelated metadata update
+	// must not overwrite the original operator identity already stored in the annotation.
+	if req.Operation == admissionv1.Update && len(req.OldObject.Raw) > 0 {
+		var oldSG kshutdownv1alpha1.ShutdownGroup
+		if err := json.Unmarshal(req.OldObject.Raw, &oldSG); err != nil {
+			return fmt.Errorf("decoding old ShutdownGroup: %w", err)
+		}
+		if oldSG.Annotations[kshutdownv1alpha1.AnnotationCommand] == newCmd {
+			return nil
+		}
+	}
+
+	if sg.Annotations == nil {
+		sg.Annotations = make(map[string]string)
+	}
+	sg.Annotations[kshutdownv1alpha1.AnnotationOperator] = req.UserInfo.Username
+	return nil
+}
+
 // +kubebuilder:webhook:path=/validate-kshutdown-io-v1alpha1-shutdowngroup,mutating=false,failurePolicy=Fail,sideEffects=None,groups=kshutdown.io,resources=shutdowngroups,verbs=create;update,versions=v1alpha1,name=vshutdowngroup.kb.io,admissionReviewVersions=v1
-// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 // ShutdownGroupValidator enforces server-side authorization on command annotations.
 // It intercepts CREATE and UPDATE on ShutdownGroup and verifies via SubjectAccessReview
@@ -54,6 +100,8 @@ type ShutdownGroupValidator struct {
 		namespace, group, resource, name, verb string,
 	) (bool, error)
 }
+
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 // SetupWebhookWithManager registers the validator with the controller-runtime manager.
 func (v *ShutdownGroupValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {

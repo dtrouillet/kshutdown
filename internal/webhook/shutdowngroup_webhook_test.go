@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -42,13 +43,29 @@ func TestWebhooks(t *testing.T) {
 	RunSpecs(t, "Webhook Suite")
 }
 
-// makeCtx returns a context carrying an admission.Request for the given user (no groups).
+// makeCtx returns a context carrying a CREATE admission.Request for the given user.
 func makeCtx(user string) context.Context {
 	req := admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
-			UserInfo: authenticationv1.UserInfo{
-				Username: user,
-			},
+			Operation: admissionv1.Create,
+			UserInfo:  authenticationv1.UserInfo{Username: user},
+		},
+	}
+	return admission.NewContextWithRequest(context.Background(), req)
+}
+
+// makeUpdateCtx returns a context carrying an UPDATE admission.Request where oldSG is the
+// previous object. Used to test the mutator's guard against overwriting an existing operator.
+func makeUpdateCtx(user string, oldSG *kshutdownv1alpha1.ShutdownGroup) context.Context {
+	raw, err := json.Marshal(oldSG)
+	if err != nil {
+		panic(err)
+	}
+	req := admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Update,
+			UserInfo:  authenticationv1.UserInfo{Username: user},
+			OldObject: runtime.RawExtension{Raw: raw},
 		},
 	}
 	return admission.NewContextWithRequest(context.Background(), req)
@@ -80,6 +97,93 @@ func denyAll(_ context.Context, _ client.Client, _ string, _ []string, _, _, _, 
 func denyDeployments(_ context.Context, _ client.Client, _ string, _ []string, _, _, resource, _, _ string) (bool, error) {
 	return resource != "deployments", nil
 }
+
+var _ = Describe("ShutdownGroupMutator", func() {
+	const ns = "payments"
+
+	var sg *kshutdownv1alpha1.ShutdownGroup
+
+	BeforeEach(func() {
+		sg = &kshutdownv1alpha1.ShutdownGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "payment-stack", Namespace: ns},
+		}
+	})
+
+	It("does nothing when no command annotation is present", func() {
+		ctx := makeCtx("alice")
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations).To(BeNil())
+	})
+
+	It("injects operator from UserInfo when command=down is set", func() {
+		sg.Annotations = map[string]string{kshutdownv1alpha1.AnnotationCommand: "down"}
+		ctx := makeCtx("alice")
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperator]).To(Equal("alice"))
+	})
+
+	It("injects operator from UserInfo when command=up is set", func() {
+		sg.Annotations = map[string]string{kshutdownv1alpha1.AnnotationCommand: "up"}
+		ctx := makeCtx("bob")
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperator]).To(Equal("bob"))
+	})
+
+	It("overwrites an existing operator annotation with the real UserInfo identity", func() {
+		sg.Annotations = map[string]string{
+			kshutdownv1alpha1.AnnotationCommand:  "down",
+			kshutdownv1alpha1.AnnotationOperator: "spoofed-identity",
+		}
+		ctx := makeCtx("alice")
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperator]).To(Equal("alice"))
+	})
+
+	It("returns error when admission request is missing from context", func() {
+		sg.Annotations = map[string]string{kshutdownv1alpha1.AnnotationCommand: "down"}
+		err := (&ShutdownGroupMutator{}).Default(context.Background(), sg)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("retrieving admission request"))
+	})
+
+	It("does not overwrite operator on UPDATE when command annotation is unchanged", func() {
+		// Simulates a user making an unrelated metadata change (e.g. adding a label)
+		// while a command is already pending. The original operator must be preserved.
+		oldSG := &kshutdownv1alpha1.ShutdownGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "payment-stack",
+				Namespace: ns,
+				Annotations: map[string]string{
+					kshutdownv1alpha1.AnnotationCommand:  "down",
+					kshutdownv1alpha1.AnnotationOperator: "original-operator",
+				},
+			},
+		}
+		sg.Annotations = map[string]string{
+			kshutdownv1alpha1.AnnotationCommand:  "down",
+			kshutdownv1alpha1.AnnotationOperator: "original-operator",
+		}
+		ctx := makeUpdateCtx("unrelated-user", oldSG)
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperator]).To(Equal("original-operator"))
+	})
+
+	It("injects operator on UPDATE when command annotation is newly added", func() {
+		oldSG := &kshutdownv1alpha1.ShutdownGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "payment-stack", Namespace: ns},
+		}
+		sg.Annotations = map[string]string{kshutdownv1alpha1.AnnotationCommand: "down"}
+		ctx := makeUpdateCtx("alice", oldSG)
+		err := (&ShutdownGroupMutator{}).Default(ctx, sg)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperator]).To(Equal("alice"))
+	})
+})
 
 var _ = Describe("ShutdownGroupValidator", func() {
 	const ns = "payments"

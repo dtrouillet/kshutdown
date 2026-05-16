@@ -1,0 +1,34 @@
+{{- if .Values.webhook.enabled }}
+{{- if and (not .Values.webhook.certManager.enabled) (not .Values.webhook.caBundle) }}
+  {{- fail "webhook.caBundle is required when webhook.certManager.enabled is false — the API server cannot trust the webhook TLS certificate without it" }}
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "kshutdown.fullname" . }}-mutating-webhook-configuration
+  labels:
+    {{- include "kshutdown.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kshutdown.fullname" . }}-serving-cert
+  {{- end }}
+webhooks:
+  - name: mshutdowngroup.kb.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "kshutdown.fullname" . }}-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-kshutdown-io-v1alpha1-shutdowngroup
+      {{- if and (not .Values.webhook.certManager.enabled) .Values.webhook.caBundle }}
+      caBundle: {{ .Values.webhook.caBundle }}
+      {{- end }}
+    failurePolicy: Ignore
+    sideEffects: None
+    rules:
+      - apiGroups: ["kshutdown.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["shutdowngroups"]
+        scope: Namespaced
+{{- end }}

@@ -187,10 +187,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&kshutdownwebhook.ShutdownGroupMutator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ShutdownGroupMutator")
+		os.Exit(1)
+	}
 	if err := (&kshutdownwebhook.ShutdownGroupValidator{
 		Client: mgr.GetClient(),
 	}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "ShutdownGroup")
+		setupLog.Error(err, "unable to create webhook", "webhook", "ShutdownGroupValidator")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
