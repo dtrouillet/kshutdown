@@ -15,6 +15,12 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - cronjobs

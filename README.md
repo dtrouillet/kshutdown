@@ -8,6 +8,16 @@ kshutdown solves a recurring problem in strict GitOps environments: during an in
 
 ArgoCD compatibility relies on `ignoreDifferences` + `RespectIgnoreDifferences=true` configured on each ArgoCD Application, which prevents ArgoCD from reverting scaled-to-zero replicas during a sync.
 
+## Security model
+
+kshutdown uses a **ValidatingAdmissionWebhook** as the sole authoritative security gate.
+
+When a `kshutdown.io/command` annotation is written on a `ShutdownGroup` — regardless of the client (kubectl plugin, `kubectl annotate`, raw API call) — the webhook intercepts the request and performs a `SubjectAccessReview` for the **real authenticated user** (identity injected by the API server, not the client) against every target workload. If any check fails, the request is rejected before it reaches the operator.
+
+- The CLI's `SelfSubjectAccessReview` checks are a **UX convenience only** (fast fail with readable messages). They provide no security guarantee.
+- The webhook uses `failurePolicy: Fail` — if the webhook is unreachable, commands are blocked (fail-closed).
+- `--partial`: allowed when at least one target is authorized; the `kshutdown.io/partial=true` annotation signals this intent to the webhook.
+
 ## Getting Started
 
 ### Prerequisites
@@ -15,6 +25,8 @@ ArgoCD compatibility relies on `ignoreDifferences` + `RespectIgnoreDifferences=t
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
+- **cert-manager v1.x** installed in the cluster (required when `webhook.certManager.enabled=true`).
+  Install: `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
 
 ### ArgoCD prerequisite — required before use
 
@@ -125,6 +137,52 @@ helm uninstall kshutdown --namespace kshutdown-system
 | `metrics.enabled` | `false` | Expose Prometheus metrics endpoint |
 | `resources` | 500m/128Mi limits | Container resource limits |
 | `nodeSelector` | `{}` | Node selector for the operator pod |
+
+### Webhook values
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `webhook.enabled` | `false` | Enable the `ValidatingAdmissionWebhook` (strongly recommended) |
+| `webhook.port` | `9443` | Port the webhook server listens on inside the container |
+| `webhook.certManager.enabled` | `false` | Use cert-manager to provision TLS certs (recommended) |
+| `webhook.existingSecret` | `""` | Pre-provisioned Secret name with `tls.crt` / `tls.key` |
+| `webhook.caBundle` | `""` | Base64-encoded CA cert (required when using `existingSecret`) |
+
+**Install with webhook and cert-manager (recommended):**
+
+```sh
+helm install kshutdown charts/kshutdown \
+  --namespace kshutdown-system \
+  --create-namespace \
+  --set image.tag=0.2.0 \
+  --set webhook.enabled=true \
+  --set webhook.certManager.enabled=true
+```
+
+**Install with a pre-provisioned TLS secret:**
+
+```sh
+# Create the secret first
+kubectl create secret tls kshutdown-webhook-tls \
+  --cert=path/to/tls.crt \
+  --key=path/to/tls.key \
+  -n kshutdown-system
+
+helm install kshutdown charts/kshutdown \
+  --namespace kshutdown-system \
+  --create-namespace \
+  --set image.tag=0.2.0 \
+  --set webhook.enabled=true \
+  --set webhook.existingSecret=kshutdown-webhook-tls \
+  --set webhook.caBundle=$(base64 -w0 path/to/ca.crt)
+```
+
+**Error example when webhook denies:**
+
+```
+Error from server: admission webhook "vshutdowngroup.kb.io" denied the request:
+insufficient permissions on 2 resource(s): Deployment payments/payments-api, StatefulSet payments/payments-db
+```
 
 ---
 

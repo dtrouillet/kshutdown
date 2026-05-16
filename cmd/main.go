@@ -37,6 +37,7 @@ import (
 
 	kshutdowniov1alpha1 "github.com/dtrouillet/kshutdown/api/v1alpha1"
 	"github.com/dtrouillet/kshutdown/internal/controller"
+	kshutdownwebhook "github.com/dtrouillet/kshutdown/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -183,6 +184,13 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ShutdownGroup")
+		os.Exit(1)
+	}
+
+	if err := (&kshutdownwebhook.ShutdownGroupValidator{
+		Client: mgr.GetClient(),
+	}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ShutdownGroup")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -78,6 +78,7 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 			kshutdownv1alpha1.AnnotationCommand,
 			kshutdownv1alpha1.AnnotationReason,
 			kshutdownv1alpha1.AnnotationOperator,
+			kshutdownv1alpha1.AnnotationPartial,
 		)
 	}
 
@@ -138,6 +139,7 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 		kshutdownv1alpha1.AnnotationCommand,
 		kshutdownv1alpha1.AnnotationReason,
 		kshutdownv1alpha1.AnnotationOperator,
+		kshutdownv1alpha1.AnnotationPartial,
 	); err != nil {
 		return ctrl.Result{}, fmt.Errorf("consuming annotations after shutdown: %w", err)
 	}

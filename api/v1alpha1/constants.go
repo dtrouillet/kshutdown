@@ -29,6 +29,11 @@ const (
 	// Set by the CLI alongside AnnotationCommand, consumed by the operator.
 	AnnotationOperator = "kshutdown.io/operator"
 
+	// AnnotationPartial is set by the CLI when --partial is active and some targets are forbidden.
+	// The admission webhook allows the command with a warning instead of denying it entirely,
+	// provided at least one target is authorized.
+	AnnotationPartial = "kshutdown.io/partial"
+
 	CommandDown = "down"
 	CommandUp   = "up"
 

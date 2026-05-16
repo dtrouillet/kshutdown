@@ -1,0 +1,28 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kshutdown.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kshutdown.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kshutdown.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kshutdown.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+    - {{ include "kshutdown.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+    - {{ include "kshutdown.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "kshutdown.fullname" . }}-selfsigned-issuer
+  secretName: {{ include "kshutdown.fullname" . }}-webhook-server-cert
+{{- end }}

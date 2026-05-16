@@ -58,3 +58,30 @@ healthProbes:
 metrics:
   enabled: false
   bindAddress: "0"
+
+# ValidatingAdmissionWebhook — server-side authorization gate.
+# Requires TLS. Configure either certManager or existingSecret + caBundle.
+webhook:
+  # Enable the ValidatingAdmissionWebhook.
+  # When disabled, only the CLI's SelfSubjectAccessReview checks are active (not secure).
+  enabled: false
+
+  # Port the webhook server listens on inside the container.
+  port: 9443
+
+  # Use cert-manager to provision and rotate the webhook TLS certificate (recommended).
+  # cert-manager must be installed in the cluster before enabling this.
+  certManager:
+    enabled: false
+
+  # existingSecret: name of an existing Secret containing tls.crt and tls.key.
+  # Used when cert-manager is not available. Mutually exclusive with certManager.enabled.
+  existingSecret: ""
+
+  # caBundle: base64-encoded CA certificate that signed the webhook server TLS cert.
+  # Required when existingSecret is set and cert-manager CA injection is not used.
+  caBundle: ""
+
+  # certPath: path inside the container where the TLS cert files (tls.crt, tls.key) are mounted.
+  # Must match the cert volume mount path. Rarely needs to change.
+  certPath: "/tmp/k8s-webhook-server/serving-certs"

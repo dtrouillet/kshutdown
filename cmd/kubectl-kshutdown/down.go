@@ -100,6 +100,11 @@ func newDownCmd() *cobra.Command {
 			sg.Annotations[kshutdownv1alpha1.AnnotationCommand] = kshutdownv1alpha1.CommandDown
 			sg.Annotations[kshutdownv1alpha1.AnnotationReason] = reason
 			sg.Annotations[kshutdownv1alpha1.AnnotationOperator] = username
+			if partial && len(forbidden) > 0 {
+				// Signal the admission webhook that partial mode is intended so it
+				// allows the command even though some targets are forbidden.
+				sg.Annotations[kshutdownv1alpha1.AnnotationPartial] = "true"
+			}
 
 			if err := c.Patch(cmd.Context(), &sg, patch); err != nil {
 				return fmt.Errorf("patching shutdowngroup %s/%s: %w", ns, name, err)

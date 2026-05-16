@@ -43,6 +43,15 @@ spec:
             {{- else }}
             - --metrics-bind-address=0
             {{- end }}
+            {{- if .Values.webhook.enabled }}
+            - --webhook-cert-path={{ .Values.webhook.certPath }}
+            {{- end }}
+          ports:
+            {{- if .Values.webhook.enabled }}
+            - name: webhook-server
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+            {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           livenessProbe:
@@ -59,6 +68,12 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.webhook.enabled }}
+          volumeMounts:
+            - name: webhook-cert
+              mountPath: {{ .Values.webhook.certPath }}
+              readOnly: true
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -70,4 +85,10 @@ spec:
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+        - name: webhook-cert
+          secret:
+            secretName: {{ if .Values.webhook.existingSecret }}{{ .Values.webhook.existingSecret }}{{ else }}{{ include "kshutdown.fullname" . }}-webhook-server-cert{{ end }}
       {{- end }}
