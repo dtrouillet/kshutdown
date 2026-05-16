@@ -2,6 +2,29 @@ apiVersion: v1
 entries:
   kshutdown:
   - apiVersion: v2
+    appVersion: 0.4.0
+    created: "2026-05-16T21:20:39.61040168Z"
+    description: Kubernetes operator to safely shut down and restart functional slices
+      in a GitOps environment
+    digest: db1b10bc6707605015e041fcde51ee1dd71f837e33046fb3d9a42c951ef01406
+    home: https://github.com/dtrouillet/kshutdown
+    keywords:
+    - kubernetes
+    - operator
+    - gitops
+    - argocd
+    - shutdown
+    maintainers:
+    - email: contact@damien-trouillet.fr
+      name: Damien Trouillet
+    name: kshutdown
+    sources:
+    - https://github.com/dtrouillet/kshutdown
+    type: application
+    urls:
+    - https://github.com/dtrouillet/kshutdown/releases/download/kshutdown-0.4.0/kshutdown-0.4.0.tgz
+    version: 0.4.0
+  - apiVersion: v2
     appVersion: 0.3.0
     created: "2026-05-16T15:10:25.406076243Z"
     description: Kubernetes operator to safely shut down and restart functional slices
@@ -70,4 +93,4 @@ entries:
     urls:
     - https://github.com/dtrouillet/kshutdown/releases/download/kshutdown-0.1.0/kshutdown-0.1.0.tgz
     version: 0.1.0
-generated: "2026-05-16T15:10:25.406087223Z"
+generated: "2026-05-16T21:20:39.610416538Z"
