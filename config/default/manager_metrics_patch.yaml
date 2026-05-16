@@ -2,3 +2,7 @@
 - op: add
   path: /spec/template/spec/containers/0/args/0
   value: --metrics-bind-address=:8443
+# Inject webhook-cert-path here (JSON patch) to avoid strategic merge replacement of the args list
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs

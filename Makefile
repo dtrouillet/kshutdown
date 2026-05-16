@@ -192,7 +192,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KIND ?= kind
+KIND ?= $(shell which kind 2>/dev/null || echo $(shell go env GOPATH)/bin/kind)
 HELM ?= $(LOCALBIN)/helm
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen

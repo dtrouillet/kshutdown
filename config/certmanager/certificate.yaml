@@ -1,0 +1,25 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: serving-cert
+  namespace: system
+spec:
+  # DNS names must use the final prefixed service name — kustomize does not
+  # substitute plain strings inside spec fields.
+  dnsNames:
+  - kshutdown-webhook-service.kshutdown-system.svc
+  - kshutdown-webhook-service.kshutdown-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    # kustomize applies the namePrefix to the Issuer resource but not to issuerRef.name
+    # (a spec field). Use the final prefixed name directly.
+    name: kshutdown-selfsigned-issuer
+  secretName: webhook-server-cert
