@@ -2,7 +2,9 @@
 - op: add
   path: /spec/template/spec/containers/0/args/0
   value: --metrics-bind-address=:8443
-# Inject webhook-cert-path here (JSON patch) to avoid strategic merge replacement of the args list
+# Inject --webhook-cert-path via JSON patch (not strategic merge) to avoid replacing the whole args list.
+# Both ops insert at index 0, so final order is: --webhook-cert-path, --metrics-bind-address, then the
+# original args. Order is irrelevant for Go flag.Parse() but is documented here to avoid confusion.
 - op: add
   path: /spec/template/spec/containers/0/args/0
   value: --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
