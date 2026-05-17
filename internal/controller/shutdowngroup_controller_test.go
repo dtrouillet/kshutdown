@@ -372,6 +372,116 @@ var _ = Describe("reconcileDown", func() {
 		})
 	})
 
+	// --- partial mode: unauthorized resources must not appear in the snapshot ---
+
+	Context("partial mode — unauthorized resources are skipped", func() {
+		const sgNs = "default"
+		const sgName = "sg-partial-test"
+
+		var deploy1, deploy2 appsv1.Deployment
+		var sg kshutdownv1alpha1.ShutdownGroup
+
+		BeforeEach(func() {
+			deploy1 = appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "allowed-deploy",
+					Namespace: sgNs,
+					Labels:    map[string]string{"app": "myapp"},
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr(int32(2)),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "myapp"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "myapp"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "nginx"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &deploy1)).To(Succeed())
+
+			deploy2 = appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "forbidden-deploy",
+					Namespace: sgNs,
+					Labels:    map[string]string{"app": "myapp"},
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr(int32(3)),
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "myapp"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "myapp"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "nginx"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &deploy2)).To(Succeed())
+
+			sg = kshutdownv1alpha1.ShutdownGroup{
+				ObjectMeta: metav1.ObjectMeta{Name: sgName, Namespace: sgNs},
+				Spec: kshutdownv1alpha1.ShutdownGroupSpec{
+					Targets: []kshutdownv1alpha1.Target{
+						{LabelSelector: map[string]string{"app": "myapp"}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, &sg)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, &sg)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &deploy1)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &deploy2)).To(Succeed())
+		})
+
+		It("excludes forbidden-deploy from the snapshot and does not scale it", func() {
+			patch := client.MergeFrom(sg.DeepCopy())
+			if sg.Annotations == nil {
+				sg.Annotations = make(map[string]string)
+			}
+			sg.Annotations[kshutdownv1alpha1.AnnotationCommand] = kshutdownv1alpha1.CommandDown
+			sg.Annotations[kshutdownv1alpha1.AnnotationOperator] = "user-partial"
+			sg.Annotations[kshutdownv1alpha1.AnnotationReason] = "partial test"
+			sg.Annotations[kshutdownv1alpha1.AnnotationPartial] = "true"
+			Expect(k8sClient.Patch(ctx, &sg, patch)).To(Succeed())
+
+			// Inject SAR: deny patch on forbidden-deploy, allow everything else.
+			r := &ShutdownGroupReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+				checkPermission: func(_ context.Context, _ client.Client, _ string, _ []string, _, _, _, name, _ string) (bool, error) {
+					return name != "forbidden-deploy", nil
+				},
+			}
+
+			_, err := r.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: sgName, Namespace: sgNs},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sgName, Namespace: sgNs}, &sg)).To(Succeed())
+			Expect(sg.Status.State).To(Equal(kshutdownv1alpha1.StateDown))
+
+			By("snapshot contains only the authorized deployment")
+			Expect(sg.Status.Snapshot).To(HaveLen(1))
+			Expect(sg.Status.Snapshot[0].Name).To(Equal("allowed-deploy"))
+
+			By("allowed-deploy is scaled to 0")
+			var d1 appsv1.Deployment
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "allowed-deploy", Namespace: sgNs}, &d1)).To(Succeed())
+			Expect(*d1.Spec.Replicas).To(Equal(int32(0)))
+
+			By("forbidden-deploy is NOT scaled")
+			var d2 appsv1.Deployment
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "forbidden-deploy", Namespace: sgNs}, &d2)).To(Succeed())
+			Expect(*d2.Spec.Replicas).To(Equal(int32(3)))
+
+			By("partial and operator-groups annotations are consumed")
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationPartial]).To(BeEmpty())
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationOperatorGroups]).To(BeEmpty())
+			Expect(sg.Annotations[kshutdownv1alpha1.AnnotationCommand]).To(BeEmpty())
+		})
+	})
+
 	// --- TASK-21: scale failure — annotation not consumed ---
 
 	Context("scale failure — annotation is not consumed on error", func() {

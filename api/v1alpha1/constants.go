@@ -34,6 +34,11 @@ const (
 	// provided at least one target is authorized.
 	AnnotationPartial = "kshutdown.io/partial"
 
+	// AnnotationOperatorGroups stores the comma-separated Kubernetes groups of the operator user.
+	// Set by the mutating webhook alongside AnnotationOperator so the controller can re-check
+	// SubjectAccessReview in partial mode without losing group membership context.
+	AnnotationOperatorGroups = "kshutdown.io/operator-groups"
+
 	CommandDown = "down"
 	CommandUp   = "up"
 

@@ -75,6 +75,7 @@ func (m *ShutdownGroupMutator) Default(ctx context.Context, sg *kshutdownv1alpha
 		sg.Annotations = make(map[string]string)
 	}
 	sg.Annotations[kshutdownv1alpha1.AnnotationOperator] = req.UserInfo.Username
+	sg.Annotations[kshutdownv1alpha1.AnnotationOperatorGroups] = strings.Join(req.UserInfo.Groups, ",")
 	return nil
 }
 
@@ -162,7 +163,8 @@ func (v *ShutdownGroupValidator) validateCommand(ctx context.Context, cmd string
 		return nil, nil
 	}
 
-	// --partial: allow if at least one target is authorized and the annotation is set.
+	// --partial only applies to "down": allow if at least one target is authorized.
+	// "up" never carries AnnotationPartial, so this branch is never reached for up.
 	if sg.Annotations[kshutdownv1alpha1.AnnotationPartial] == "true" &&
 		cmd == kshutdownv1alpha1.CommandDown &&
 		authorized > 0 {

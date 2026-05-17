@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -30,12 +31,26 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kshutdownv1alpha1 "github.com/dtrouillet/kshutdown/api/v1alpha1"
+	"github.com/dtrouillet/kshutdown/internal/authz"
 )
 
 // ShutdownGroupReconciler reconciles a ShutdownGroup object.
 type ShutdownGroupReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// checkPermission is the SAR function used when partial mode is active.
+	// Nil in production (falls back to authz.CheckFor); injectable in tests.
+	checkPermission func(ctx context.Context, c client.Client,
+		user string, groups []string,
+		namespace, group, resource, name, verb string,
+	) (bool, error)
+}
+
+func (r *ShutdownGroupReconciler) sarCheck() func(context.Context, client.Client, string, []string, string, string, string, string, string) (bool, error) {
+	if r.checkPermission != nil {
+		return r.checkPermission
+	}
+	return authz.CheckFor
 }
 
 // +kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups,verbs=get;list;watch;patch
@@ -43,6 +58,7 @@ type ShutdownGroupReconciler struct {
 // +kubebuilder:rbac:groups=kshutdown.io,resources=shutdowngroups/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 func (r *ShutdownGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -78,6 +94,7 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 			kshutdownv1alpha1.AnnotationCommand,
 			kshutdownv1alpha1.AnnotationReason,
 			kshutdownv1alpha1.AnnotationOperator,
+			kshutdownv1alpha1.AnnotationOperatorGroups,
 			kshutdownv1alpha1.AnnotationPartial,
 		)
 	}
@@ -139,6 +156,7 @@ func (r *ShutdownGroupReconciler) reconcileDown(ctx context.Context, sg *kshutdo
 		kshutdownv1alpha1.AnnotationCommand,
 		kshutdownv1alpha1.AnnotationReason,
 		kshutdownv1alpha1.AnnotationOperator,
+		kshutdownv1alpha1.AnnotationOperatorGroups,
 		kshutdownv1alpha1.AnnotationPartial,
 	); err != nil {
 		return ctrl.Result{}, fmt.Errorf("consuming annotations after shutdown: %w", err)
@@ -156,6 +174,7 @@ func (r *ShutdownGroupReconciler) reconcileUp(ctx context.Context, sg *kshutdown
 			kshutdownv1alpha1.AnnotationCommand,
 			kshutdownv1alpha1.AnnotationReason,
 			kshutdownv1alpha1.AnnotationOperator,
+			kshutdownv1alpha1.AnnotationOperatorGroups,
 		)
 	}
 
@@ -209,6 +228,7 @@ func (r *ShutdownGroupReconciler) reconcileUp(ctx context.Context, sg *kshutdown
 		kshutdownv1alpha1.AnnotationCommand,
 		kshutdownv1alpha1.AnnotationReason,
 		kshutdownv1alpha1.AnnotationOperator,
+		kshutdownv1alpha1.AnnotationOperatorGroups,
 	); err != nil {
 		return ctrl.Result{}, fmt.Errorf("consuming annotations after startup: %w", err)
 	}
@@ -274,7 +294,23 @@ func (r *ShutdownGroupReconciler) unsuspendCronJob(ctx context.Context, snap ksh
 
 // collectTargets lists all Deployment, StatefulSet, and CronJob resources
 // matching the ShutdownGroup's targets and returns a snapshot of their current state.
+// In partial mode, resources the operator is not authorized to patch are silently skipped.
 func (r *ShutdownGroupReconciler) collectTargets(ctx context.Context, sg *kshutdownv1alpha1.ShutdownGroup) ([]kshutdownv1alpha1.ResourceSnapshot, error) {
+	log := logf.FromContext(ctx)
+	partial := sg.Annotations[kshutdownv1alpha1.AnnotationPartial] == "true"
+	operator := sg.Annotations[kshutdownv1alpha1.AnnotationOperator]
+	var groups []string
+	if g := sg.Annotations[kshutdownv1alpha1.AnnotationOperatorGroups]; g != "" {
+		groups = strings.Split(g, ",")
+	}
+	// If operator annotation is absent (mutating webhook missed due to failurePolicy=Ignore),
+	// fall back to full mode so the controller doesn't get stuck in an infinite requeue.
+	if partial && operator == "" {
+		log.Info("partial mode requested but operator annotation is absent — falling back to full mode")
+		partial = false
+	}
+	check := r.sarCheck()
+
 	var snapshots []kshutdownv1alpha1.ResourceSnapshot
 
 	for _, target := range sg.Spec.Targets {
@@ -289,6 +325,16 @@ func (r *ShutdownGroupReconciler) collectTargets(ctx context.Context, sg *kshutd
 			return nil, fmt.Errorf("listing deployments in %s: %w", ns, err)
 		}
 		for _, d := range deployments.Items {
+			if partial {
+				allowed, err := check(ctx, r.Client, operator, groups, ns, "apps", "deployments", d.Name, "patch")
+				if err != nil {
+					return nil, fmt.Errorf("checking patch permission for Deployment %s/%s: %w", ns, d.Name, err)
+				}
+				if !allowed {
+					log.Info("partial mode: skipping unauthorized Deployment", "namespace", ns, "name", d.Name)
+					continue
+				}
+			}
 			replicas := int32(1)
 			if d.Spec.Replicas != nil {
 				replicas = *d.Spec.Replicas
@@ -306,6 +352,16 @@ func (r *ShutdownGroupReconciler) collectTargets(ctx context.Context, sg *kshutd
 			return nil, fmt.Errorf("listing statefulsets in %s: %w", ns, err)
 		}
 		for _, s := range statefulsets.Items {
+			if partial {
+				allowed, err := check(ctx, r.Client, operator, groups, ns, "apps", "statefulsets", s.Name, "patch")
+				if err != nil {
+					return nil, fmt.Errorf("checking patch permission for StatefulSet %s/%s: %w", ns, s.Name, err)
+				}
+				if !allowed {
+					log.Info("partial mode: skipping unauthorized StatefulSet", "namespace", ns, "name", s.Name)
+					continue
+				}
+			}
 			replicas := int32(1)
 			if s.Spec.Replicas != nil {
 				replicas = *s.Spec.Replicas
@@ -322,14 +378,24 @@ func (r *ShutdownGroupReconciler) collectTargets(ctx context.Context, sg *kshutd
 		if err := r.List(ctx, &cronjobs, client.InNamespace(ns), labels); err != nil {
 			return nil, fmt.Errorf("listing cronjobs in %s: %w", ns, err)
 		}
-		for _, c := range cronjobs.Items {
+		for _, cj := range cronjobs.Items {
+			if partial {
+				allowed, err := check(ctx, r.Client, operator, groups, ns, "batch", "cronjobs", cj.Name, "patch")
+				if err != nil {
+					return nil, fmt.Errorf("checking patch permission for CronJob %s/%s: %w", ns, cj.Name, err)
+				}
+				if !allowed {
+					log.Info("partial mode: skipping unauthorized CronJob", "namespace", ns, "name", cj.Name)
+					continue
+				}
+			}
 			previousReplicas := int32(0) // 0 = was active
-			if c.Spec.Suspend != nil && *c.Spec.Suspend {
+			if cj.Spec.Suspend != nil && *cj.Spec.Suspend {
 				previousReplicas = 1 // 1 = was already suspended
 			}
 			snapshots = append(snapshots, kshutdownv1alpha1.ResourceSnapshot{
 				Namespace:        ns,
-				Name:             c.Name,
+				Name:             cj.Name,
 				Kind:             "CronJob",
 				PreviousReplicas: previousReplicas,
 			})
